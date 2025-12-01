@@ -1,0 +1,211 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Steganogram</title>
+  <style>
+    /* Minimal but attractive gradient + soft 3D card */
+    :root { --bg1:#0f0c29; --bg2:#302b63; --accent1:#00c6ff; --accent2:#0072ff; --glass: rgba(255,255,255,0.04); color-scheme: dark; }
+    body{font-family:Inter,system-ui,Arial;background:linear-gradient(135deg,var(--bg1),var(--bg2));color:#eaf4ff;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+    .card{width:980px;max-width:calc(100% - 32px);border-radius:18px;padding:18px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow: 0 20px 60px rgba(2,8,24,0.6);display:grid;grid-template-columns:1fr 380px;gap:18px;}
+    h1{margin:0 0 6px 0;font-weight:700}
+    .tabs{display:flex;gap:8px;margin-bottom:12px}
+    .tab{padding:8px 12px;border-radius:10px;cursor:pointer;background:var(--glass);border:1px solid rgba(255,255,255,0.03)}
+    .tab.active{background:linear-gradient(90deg,var(--accent1),var(--accent2));color:#041022;border:none}
+    .panel{background:rgba(0,0,0,0.25);padding:12px;border-radius:12px;min-height:360px;display:flex;flex-direction:column;gap:12px}
+    label{font-size:13px;color:#dff7ff}
+    input[type="text"], textarea{width:97%;padding:10px;border-radius:10px;border:none;background:rgba(255,255,255,0.03);color:white}
+    input[type="file"]{color:white}
+    .btn{padding:10px 14px;border-radius:10px;border:none;cursor:pointer}
+    .btn.primary{background:linear-gradient(90deg,var(--accent1),var(--accent2));color:#041022}
+    .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:#dff7ff}
+    .preview{border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,0.04);background:#090919;padding:8px}
+    .right{padding-left:8px}
+    pre{white-space:pre-wrap;background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;color:#e6faff}
+    .small{font-size:13px;opacity:0.9}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <h1>Steganogram</h1>
+          <div class="small">Encode (AES → LSB) & Decode — auto-passphrase generation</div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;">
+        <div class="tabs">
+          <div id="tab-encode" class="tab active">Encode</div>
+          <div id="tab-decode" class="tab">Decode</div>
+        </div>
+
+        <div id="encode-panel" class="panel">
+          <label>Choose cover image (PNG/JPG)</label>
+          <input id="cover-file" type="file" accept="image/*" />
+          <label>Secret message to hide</label>
+          <textarea id="secret-text" rows="5" placeholder="Type your secret message here..."></textarea>
+
+          <div style="display:flex;gap:10px;align-items:center;">
+            <button id="btn-encode" class="btn primary">Encode & Download</button>
+            <button id="btn-encode-preview" class="btn ghost">Encode & Preview</button>
+          </div>
+
+          <div id="encode-result" style="display:none;margin-top:8px;">
+            <div class="small">Passphrase (save this; it is required to decode):</div>
+            <pre id="passphrase" style="user-select:all"></pre>
+            <div class="small" style="margin-top:8px">Stego image preview (right panel also shows it):</div>
+          </div>
+        </div>
+
+        <div id="decode-panel" class="panel" style="display:none;">
+          <label>Upload stego image</label>
+          <input id="stego-file" type="file" accept="image/*" />
+          <label>Enter passphrase (base64 key)</label>
+          <input id="passphrase-input" type="text" placeholder="Paste passphrase here" />
+          <div style="display:flex;gap:10px;margin-top:6px;">
+            <button id="btn-decode" class="btn primary">Decode</button>
+            <button id="btn-clear" class="btn ghost">Clear</button>
+          </div>
+
+          <div id="decode-result" style="display:none;margin-top:8px;">
+            <div class="small">Decoded message:</div>
+            <pre id="decoded-message"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="right">
+      <div style="font-weight:700;margin-bottom:8px">Preview</div>
+      <div class="preview" id="preview-area" style="display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;min-height:320px">
+        <div class="small" style="opacity:0.7">No preview yet</div>
+        <img id="preview-image" src="" style="max-width:100%;max-height:260px;display:none;border-radius:8px" />
+        <a id="download-link" href="#" download="stego.png" style="display:none" class="btn primary">Download Stego Image</a>
+      </div>
+      <div style="margin-top:12px;font-size:13px;opacity:0.9">
+        Tip: Use PNG images for best results. The passphrase is a 32-byte AES key (base64). Keep it safe.
+      </div>
+    </div>
+  </div>
+
+<script>
+  // Simple UI logic
+  const tEncode = document.getElementById('tab-encode'), tDecode = document.getElementById('tab-decode');
+  const pEncode = document.getElementById('encode-panel'), pDecode = document.getElementById('decode-panel');
+  tEncode.onclick = ()=> { tEncode.classList.add('active'); tDecode.classList.remove('active'); pEncode.style.display='block'; pDecode.style.display='none'; }
+  tDecode.onclick = ()=> { tDecode.classList.add('active'); tEncode.classList.remove('active'); pDecode.style.display='block'; pEncode.style.display='none'; }
+
+  const coverFile = document.getElementById('cover-file');
+  const secretText = document.getElementById('secret-text');
+  const btnEncode = document.getElementById('btn-encode');
+  const btnPreview = document.getElementById('btn-encode-preview');
+  const previewImage = document.getElementById('preview-image');
+  const previewArea = document.getElementById('preview-area');
+  const downloadLink = document.getElementById('download-link');
+  const encodeResult = document.getElementById('encode-result');
+  const passphraseEl = document.getElementById('passphrase');
+
+  const stegoFile = document.getElementById('stego-file');
+  const passInput = document.getElementById('passphrase-input');
+  const btnDecode = document.getElementById('btn-decode');
+  const decodeResult = document.getElementById('decode-result');
+  const decodedMessage = document.getElementById('decoded-message');
+  const btnClear = document.getElementById('btn-clear');
+
+  async function postForm(url, form) {
+    const resp = await fetch(url, { method:'POST', body: form });
+    return resp.json();
+  }
+
+  function clearEncodeInputs() {
+    coverFile.value = "";
+    secretText.value = "";
+  }
+
+
+  // encode (download)
+  btnEncode.onclick = async () => {
+    if (!coverFile.files[0]) return alert('Please choose a cover image.');
+    if (!secretText.value.trim()) return alert('Please type a message to hide.');
+    btnEncode.disabled = true;
+    try {
+      const form = new FormData();
+      form.append('image', coverFile.files[0]);
+      form.append('message', secretText.value);
+      const data = await postForm('/encode', form);
+      if (data.status === 'ok') {
+        encodeResult.style.display = 'block';
+        passphraseEl.textContent = data.passphrase;
+        previewImage.src = data.stego_image;
+        previewImage.style.display = 'block';
+        downloadLink.href = data.stego_image;
+        downloadLink.style.display = 'inline-block';
+        downloadLink.download = 'steganogram.png';
+
+        clearEncodeInputs();
+      } else {
+        alert('Encode failed: ' + (data.error || 'unknown'));
+      }
+    } catch (e) { alert('Encode error: ' + e.message); }
+    btnEncode.disabled = false;
+  };
+
+  // encode (preview only)
+  btnPreview.onclick = async () => {
+    if (!coverFile.files[0]) return alert('Please choose a cover image.');
+    if (!secretText.value.trim()) return alert('Please type a message to hide.');
+    btnPreview.disabled = true;
+    try {
+      const form = new FormData();
+      form.append('image', coverFile.files[0]);
+      form.append('message', secretText.value);
+      const data = await postForm('/encode', form);
+      if (data.status === 'ok') {
+        encodeResult.style.display = 'block';
+        passphraseEl.textContent = data.passphrase;
+        previewImage.src = data.stego_image;
+        previewImage.style.display = 'block';
+        downloadLink.href = data.stego_image;
+        downloadLink.style.display = 'inline-block';
+
+        clearEncodeInputs();
+      } else {
+        alert('Encode failed: ' + (data.error || 'unknown'));
+      }
+    } catch (e) { alert('Encode error: ' + e.message); }
+    btnPreview.disabled = false;
+  };
+
+  // decode
+  btnDecode.onclick = async () => {
+    if (!stegoFile.files[0]) return alert('Please upload a stego image.');
+    if (!passInput.value.trim()) return alert('Please enter the passphrase.');
+    btnDecode.disabled = true;
+    const form = new FormData();
+    form.append('image', stegoFile.files[0]);
+    form.append('passphrase', passInput.value.trim());
+    try {
+      const resp = await fetch('/decode', { method:'POST', body: form });
+      const data = await resp.json();
+      if (data.status === 'ok') {
+        decodeResult.style.display = 'block';
+        decodedMessage.textContent = data.message;
+      } else {
+        alert('Decode failed: ' + (data.error || 'unknown'));
+      }
+    } catch (e) { alert('Decode error: ' + e.message); }
+    btnDecode.disabled = false;
+  };
+
+  btnClear.onclick = ()=> {
+    stegoFile.value = '';
+    passInput.value = '';
+    decodeResult.style.display = 'none';
+    decodedMessage.textContent = '';
+  };
+</script>
+</body>
+</html>
